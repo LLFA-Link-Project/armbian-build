@@ -1,0 +1,6 @@
+make: Entering directory '/tmp/linux-6.18.55'
+  CALL    scripts/checksyscalls.sh
+  CC [M]  drivers/gpu/drm/rockchip/rockchip_drm_vop2.o
+make: Leaving directory '/tmp/linux-6.18.55'
+PASS: current arm64 object and transition marker: drivers/gpu/drm/rockchip/rockchip_drm_vop2.o
+PASS: current arm64 object and transition marker: drivers/gpu/drm/bridge/synopsys/dw-dp.o

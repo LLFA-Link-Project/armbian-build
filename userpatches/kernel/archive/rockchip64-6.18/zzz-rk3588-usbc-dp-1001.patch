@@ -1,0 +1,298 @@
+From: OpenAI Codex <codex@openai.com>
+Subject: [PATCH] drm: Log RK3588 DisplayPort modeset transitions
+
+Compare the first modeset with repeated modesets.
+Record atomic state, standby completion, PLL updates, and DPTX reset.
+Read configuration registers while their device clocks remain available.
+Preserve register writes, delays, and training policy.
+
+Signed-off-by: OpenAI Codex <codex@openai.com>
+---
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -937,6 +937,55 @@
+ 	return gamma_en_vp_id != nr_vps && gamma_en_vp_id != vp->id;
+ }
+ 
++static void vop2_diag_state(struct drm_crtc *crtc, struct drm_atomic_state *state,
++			    const char *phase)
++{
++	struct vop2_video_port *vp = to_vop2_video_port(crtc);
++	struct drm_crtc_state *old = drm_atomic_get_old_crtc_state(state, crtc);
++	struct drm_crtc_state *new = drm_atomic_get_new_crtc_state(state, crtc);
++	struct drm_plane_state *plane = crtc->primary ?
++		drm_atomic_get_new_plane_state(state, crtc->primary) : NULL;
++	struct drm_framebuffer *fb = plane ? plane->fb : NULL;
++	struct drm_plane_state *old_plane = crtc->primary ?
++		drm_atomic_get_old_plane_state(state, crtc->primary) : NULL;
++	struct drm_framebuffer *old_fb = old_plane ? old_plane->fb : NULL;
++
++	dev_dbg(vp->vop2->dev,
++		"dpdiag seq vop: phase=%s state=%p crtc=%u vp=%u count=%u old_present=%u new_present=%u old_active=%u new_active=%u old_enable=%u new_enable=%u old_clock=%d new_clock=%d mode_changed=%u active_changed=%u connectors_changed=%u planes_changed=%u plane_present=%u old_plane_present=%u old_fb=%u old_format=%#x fb=%u format=%#x pitch=%u modifier=%#llx\n",
++		phase, state, crtc->base.id, vp->id, vp->vop2->enable_count,
++		!!old, !!new, old ? old->active : 0, new ? new->active : 0,
++		old ? old->enable : 0, new ? new->enable : 0,
++		old ? old->adjusted_mode.clock : 0, new ? new->adjusted_mode.clock : 0,
++		new ? new->mode_changed : 0, new ? new->active_changed : 0,
++		new ? new->connectors_changed : 0, new ? new->planes_changed : 0,
++		!!plane, !!old_plane, old_fb ? old_fb->base.id : 0,
++		old_fb ? old_fb->format->format : 0,
++		fb ? fb->base.id : 0, fb ? fb->format->format : 0,
++		fb ? fb->pitches[0] : 0, fb ? fb->modifier : 0);
++}
++
++static void vop2_diag_regs(struct vop2_video_port *vp, const char *phase)
++{
++	struct vop2 *vop2 = vp->vop2;
++
++	if (vop2->data->soc_id != 3588 || !vop2->enable_count)
++		return;
++
++	dev_dbg(vop2->dev,
++		"dpdiag seq vop regs: phase=%s vp=%u dclk_hz=%lu cached_dsp=%#x cached_clk=%#x cached_htotal=%#x cached_vtotal=%#x hw_dsp=%#x hw_clk=%#x hw_htotal=%#x hw_vtotal=%#x cfg_done=%#x if_en=%#x\n",
++		phase, vp->id, clk_get_rate(vp->dclk),
++		vop2_vp_read(vp, RK3568_VP_DSP_CTRL),
++		vop2_vp_read(vp, RK3588_VP_CLK_CTRL),
++		vop2_vp_read(vp, RK3568_VP_DSP_HTOTAL_HS_END),
++		vop2_vp_read(vp, RK3568_VP_DSP_VTOTAL_VS_END),
++		readl(vop2->regs + vp->data->offset + RK3568_VP_DSP_CTRL),
++		readl(vop2->regs + vp->data->offset + RK3588_VP_CLK_CTRL),
++		readl(vop2->regs + vp->data->offset + RK3568_VP_DSP_HTOTAL_HS_END),
++		readl(vop2->regs + vp->data->offset + RK3568_VP_DSP_VTOTAL_VS_END),
++		vop2_readl(vop2, RK3568_REG_CFG_DONE),
++		vop2_readl(vop2, RK3568_DSP_IF_EN));
++}
++
+ static void vop2_crtc_atomic_disable(struct drm_crtc *crtc,
+ 				     struct drm_atomic_state *state)
+ {
+@@ -947,6 +996,8 @@
+ 
+ 	vop2_lock(vop2);
+ 
++	vop2_diag_state(crtc, state, "disable-enter");
++	vop2_diag_regs(vp, "disable-enter");
+ 	old_crtc_state = drm_atomic_get_old_crtc_state(state, crtc);
+ 	drm_atomic_helper_disable_planes_on_crtc(old_crtc_state, false);
+ 
+@@ -970,11 +1021,15 @@
+ 	if (!ret)
+ 		drm_info(vop2->drm, "wait for vp%d dsp_hold timeout\n", vp->id);
+ 
++	dev_dbg(vop2->dev, "dpdiag seq vop hold: state=%p vp=%u completed=%u remaining_jiffies=%d\n",
++		state, vp->id, !!ret, ret);
++	vop2_diag_regs(vp, "standby-done");
+ 	vop2_crtc_disable_irq(vp, VP_INT_DSP_HOLD_VALID);
+ 
+ 	if (vp->dclk_src)
+ 		clk_set_parent(vp->dclk, vp->dclk_src);
+ 
++	vop2_diag_regs(vp, "before-dclk-off");
+ 	clk_disable_unprepare(vp->dclk);
+ 
+ 	vop2->enable_count--;
+@@ -982,6 +1037,7 @@
+ 	if (!vop2->enable_count)
+ 		vop2_disable(vop2);
+ 
++	vop2_diag_state(crtc, state, "disable-exit");
+ 	vop2_unlock(vop2);
+ 
+ 	if (crtc->state->event && !crtc->state->active) {
+@@ -1627,7 +1683,12 @@
+ 		if (clk_round_rate(pll, pll_rate) != pll_rate)
+ 			return -EINVAL;
+ 
++		dev_dbg(vp->vop2->dev,
++			"dpdiag seq PLL set: vp=%u old_hz=%lu request_hz=%lu\n",
++			vp->id, clk_get_rate(pll), pll_rate);
+ 		ret = clk_set_rate(pll, pll_rate);
++		dev_dbg(vp->vop2->dev, "dpdiag seq PLL result: vp=%u ret=%d actual_hz=%lu\n",
++			vp->id, ret, clk_get_rate(pll));
+ 		if (ret)
+ 			return ret;
+ 	}
+@@ -1670,6 +1731,7 @@
+ 		drm_mode_vrefresh(mode), vcstate->output_type, vp->id);
+ 
+ 	vop2_lock(vop2);
++	vop2_diag_state(crtc, state, "enable-enter");
+ 
+ 	ret = clk_prepare_enable(vp->dclk);
+ 	if (ret < 0) {
+@@ -1683,6 +1745,7 @@
+ 		vop2_enable(vop2);
+ 
+ 	vop2->enable_count++;
++	vop2_diag_regs(vp, "clocks-on");
+ 
+ 	vcstate->yuv_overlay = is_yuv_output(vcstate->bus_format);
+ 
+@@ -1807,6 +1870,7 @@
+ 		}
+ 	}
+ 
++	vop2_diag_regs(vp, "before-dclk-set");
+ 	if (vop2_data->soc_id == 3588 && vp->id == 2 &&
+ 	    vcstate->output_type == DRM_MODE_CONNECTOR_DisplayPort)
+ 		ret = rk3588_vop2_dp_set_dclk(vp, clock);
+@@ -1836,11 +1900,14 @@
+ 
+ 	vop2_cfg_done(vp);
+ 
++	vop2_diag_regs(vp, "before-standby-release");
+ 	vop2_vp_write(vp, RK3568_VP_DSP_CTRL, dsp_ctrl);
++	vop2_diag_regs(vp, "after-standby-release");
+ 
+ 	vop2_crtc_atomic_try_set_gamma(vop2, vp, crtc, crtc_state);
+ 
+ 	drm_crtc_vblank_on(crtc);
++	vop2_diag_state(crtc, state, "enable-exit");
+ 
+ 	vop2_unlock(vop2);
+ }
+@@ -1914,9 +1981,11 @@
+ 	if (!drm_atomic_crtc_needs_modeset(crtc_state) && crtc_state->color_mgmt_changed)
+ 		vop2_crtc_atomic_try_set_gamma_locked(vop2, vp, crtc, crtc_state);
+ 
++	vop2_diag_state(crtc, state, "flush");
+ 	vop2_post_config(crtc);
+ 
+ 	vop2_cfg_done(vp);
++	vop2_diag_regs(vp, "flush-done");
+ 
+ 	spin_lock_irq(&crtc->dev->event_lock);
+ 
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-dp.c b/drivers/gpu/drm/bridge/synopsys/dw-dp.c
+--- a/drivers/gpu/drm/bridge/synopsys/dw-dp.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-dp.c
+@@ -1253,10 +1253,42 @@
+ 	return 0;
+ }
+ 
++static u32 dw_dp_diag_reg(struct dw_dp *dp, unsigned int reg)
++{
++	unsigned int value = 0;
++	int ret = regmap_read(dp->regmap, reg, &value);
++
++	if (ret)
++		dev_dbg(dp->dev, "dpdiag seq read error: reg=%#x ret=%d\n", reg, ret);
++	return value;
++}
++
++static void dw_dp_diag_seq(struct dw_dp *dp, struct drm_atomic_state *state,
++			   const char *phase, bool powered)
++{
++	dev_dbg(dp->dev,
++		"dpdiag seq dptx: phase=%s state=%p pm_active=%u suspended=%u link_enabled=%u cr=%u eq=%u rate_khz=%u lanes=%u\n",
++		phase, state, dp->pm_active, pm_runtime_suspended(dp->dev),
++		dp->link.enabled, dp->link.train.clock_recovered,
++		dp->link.train.channel_equalized, dp->link.rate, dp->link.lanes);
++	if (powered)
++		dev_dbg(dp->dev,
++			"dpdiag seq dptx regs: phase=%s cctl=%#x reset=%#x sample=%#x phy=%#x video1=%#x video2=%#x video5=%#x\n",
++			phase, dw_dp_diag_reg(dp, DW_DP_CCTL),
++			dw_dp_diag_reg(dp, DW_DP_SOFT_RESET_CTRL),
++			dw_dp_diag_reg(dp, DW_DP_VSAMPLE_CTRL),
++			dw_dp_diag_reg(dp, DW_DP_PHYIF_CTRL),
++			dw_dp_diag_reg(dp, DW_DP_VIDEO_CONFIG1),
++			dw_dp_diag_reg(dp, DW_DP_VIDEO_CONFIG2),
++			dw_dp_diag_reg(dp, DW_DP_VIDEO_CONFIG5));
++}
++
+ static void dw_dp_video_disable(struct dw_dp *dp)
+ {
++	dw_dp_diag_seq(dp, NULL, "video-disable-before", true);
+ 	regmap_update_bits(dp->regmap, DW_DP_VSAMPLE_CTRL, VIDEO_STREAM_ENABLE,
+ 			   FIELD_PREP(VIDEO_STREAM_ENABLE, 0));
++	dw_dp_diag_seq(dp, NULL, "video-disable-after", true);
+ }
+ 
+ static int dw_dp_video_enable(struct dw_dp *dp)
+@@ -1442,8 +1474,10 @@
+ 		     FIELD_PREP(HBLANK_INTERVAL, hblank_interval));
+ 
+ 	/* Video stream enable */
++	dw_dp_diag_seq(dp, NULL, "video-enable-before", true);
+ 	regmap_update_bits(dp->regmap, DW_DP_VSAMPLE_CTRL, VIDEO_STREAM_ENABLE,
+ 			   FIELD_PREP(VIDEO_STREAM_ENABLE, 1));
++	dw_dp_diag_seq(dp, NULL, "video-enable-after", true);
+ 
+ 	if (dw_dp_video_need_vsc_sdp(dp))
+ 		dw_dp_send_vsc_sdp(dp);
+@@ -1745,12 +1779,14 @@
+ 	struct drm_connector_state *conn_state;
+ 	int ret;
+ 
++	dw_dp_diag_seq(dp, state, "enable-enter", false);
+ 	ret = pm_runtime_get_active(dp->dev, RPM_TRANSPARENT);
+ 	if (ret) {
+ 		dev_err(dp->dev, "runtime PM failure\n");
+ 		return;
+ 	}
+ 	dp->pm_active = true;
++	dw_dp_diag_seq(dp, state, "pm-get", true);
+ 
+ 	connector = drm_atomic_get_new_connector_for_encoder(state, bridge->encoder);
+ 	if (!connector) {
+@@ -1775,13 +1811,18 @@
+ 			bridge_state->mode.htotal, bridge_state->mode.vtotal,
+ 			bridge_state->bpc, bridge_state->bpp);
+ 
++	dw_dp_diag_seq(dp, state, "before-link-enable", true);
+ 	ret = dw_dp_link_enable(dp);
++	dev_dbg(dp->dev, "dpdiag seq link result: state=%p ret=%d\n", state, ret);
++	dw_dp_diag_seq(dp, state, "after-link-enable", true);
+ 	if (ret < 0) {
+ 		dev_err(dp->dev, "failed to enable link: %d\n", ret);
+ 		return;
+ 	}
+ 
+ 	ret = dw_dp_video_enable(dp);
++	dev_dbg(dp->dev, "dpdiag seq video result: state=%p ret=%d\n", state, ret);
++	dw_dp_diag_seq(dp, state, "enable-exit", true);
+ 	if (ret < 0) {
+ 		dev_err(dp->dev, "failed to enable video: %d\n", ret);
+ 		return;
+@@ -1790,7 +1831,9 @@
+ 
+ static void dw_dp_reset(struct dw_dp *dp)
+ {
+-	int val;
++	int val, ret;
++
++	dw_dp_diag_seq(dp, NULL, "reset-enter", true);
+ 
+ 	disable_irq(dp->irq);
+ 	regmap_update_bits(dp->regmap, DW_DP_SOFT_RESET_CTRL, CONTROLLER_RESET,
+@@ -1800,8 +1843,10 @@
+ 			   FIELD_PREP(CONTROLLER_RESET, 0));
+ 
+ 	dw_dp_init_hw(dp);
+-	regmap_read_poll_timeout(dp->regmap, DW_DP_HPD_STATUS, val,
++	ret = regmap_read_poll_timeout(dp->regmap, DW_DP_HPD_STATUS, val,
+ 				 FIELD_GET(HPD_HOT_PLUG, val), 200, 200000);
++	dev_dbg(dp->dev, "dpdiag seq reset poll: ret=%d hpd=%#x\n", ret, ret ? 0 : val);
++	dw_dp_diag_seq(dp, NULL, "reset-exit", true);
+ 	regmap_write(dp->regmap, DW_DP_HPD_STATUS, HPD_HOT_PLUG);
+ 	enable_irq(dp->irq);
+ }
+@@ -1811,6 +1856,7 @@
+ {
+ 	struct dw_dp *dp = bridge_to_dp(bridge);
+ 
++	dw_dp_diag_seq(dp, state, "disable-enter", dp->pm_active);
+ 	if (!dp->pm_active)
+ 		return;
+ 	dp->pm_active = false;
+@@ -1819,7 +1865,9 @@
+ 	dw_dp_link_disable(dp);
+ 	bitmap_zero(dp->sdp_reg_bank, SDP_REG_BANK_SIZE);
+ 	dw_dp_reset(dp);
++	dw_dp_diag_seq(dp, state, "before-pm-put", true);
+ 	pm_runtime_put_autosuspend(dp->dev);
++	dw_dp_diag_seq(dp, state, "disable-exit", false);
+ }
+ 
+ static bool dw_dp_hpd_detect_link(struct dw_dp *dp, struct drm_connector *connector)

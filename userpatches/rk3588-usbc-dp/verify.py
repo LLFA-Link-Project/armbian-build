@@ -136,7 +136,8 @@ def package(path):
     return fields, files("data")
 
 
-def check_packages(paths, diagnostics=False, clock_repair=False):
+def check_packages(paths, diagnostics=False, clock_repair=False, transitions=False):
+    clock_repair = clock_repair or transitions
     packages = {meta["Package"]: (meta, data) for meta, data in map(package, paths)}
     names = [f"linux-{part}-current-rockchip64" for part in ("image", "dtb", "headers")]
     require(set(packages) == set(names), "Provide image, DTB and headers packages")
@@ -173,6 +174,9 @@ def check_packages(paths, diagnostics=False, clock_repair=False):
                 f"Wrong module architecture: {module}")
         if module == "dw-dp":
             require(b"USB-C mode" in obj, "DP Alt Mode patch missing")
+        if transitions and module in ("dw-dp", "rockchipdrm"):
+            phase = b"dpdiag seq dptx" if module == "dw-dp" else b"dpdiag seq vop"
+            require(phase in obj, f"Transition diagnostics missing: {module}")
         if marker:
             require(marker in obj, f"Diagnostic patch missing: {module}")
     builtin = image["lib/modules/" + release + "/modules.builtin"]
@@ -188,13 +192,14 @@ def main():
     parser.add_argument("--dtb", type=Path)
     parser.add_argument("--diagnostics", action="store_true")
     parser.add_argument("--clock-repair", action="store_true")
+    parser.add_argument("--transitions", action="store_true")
     parser.add_argument("packages", nargs="*", type=Path)
     args = parser.parse_args()
     require(bool(args.dtb or args.packages), "Provide --dtb or three packages")
     if args.dtb:
-        check_dtb(args.dtb.read_bytes(), args.clock_repair)
+        check_dtb(args.dtb.read_bytes(), args.clock_repair or args.transitions)
     if args.packages:
-        check_packages(args.packages, args.diagnostics, args.clock_repair)
+        check_packages(args.packages, args.diagnostics, args.clock_repair, args.transitions)
 
 
 if __name__ == "__main__":

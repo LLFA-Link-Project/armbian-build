@@ -8,7 +8,10 @@ Higher modes show corruption.
 See `high-resolution.md` for diagnostic patch 0801 and log collection.
 The user supplies diagnostic logs from patch 0801.
 See `vop2-clock.md` for clock repair patches 0901–0903.
-The clock repair requires a new package build.
+The user confirms correct clocks and HBR3 ×4 after the clock repair.
+First high-resolution modesets fail, while repeated executions display correctly.
+See `modeset-sequence.md` for diagnostic patch 1001.
+Patch 1001 requires a new package build.
 See `build-result.md` for baseline package paths, hashes, and log paths.
 
 ## Baseline
