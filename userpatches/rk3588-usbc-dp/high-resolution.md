@@ -12,10 +12,10 @@ The user supplies the following `modetest -M rockchip -c` timings.
 
 | Mode | Pixel clock, MHz | htotal × vtotal | RGB 8bpc demand, Gbit/s | DCLK request, MHz | Actual DCLK |
 |---|---:|---|---:|---:|---|
-| 1920×1080 @60 | 148.500 | 2200 × 1125 | 3.564 | 148.500 | Pending log |
+| 1920×1080 @60 | 148.500 | 2200 × 1125 | 3.564 | 148.500 | 148.500 MHz |
 | 2560×1440 @60 | 236.110 | 2688 × 1464 | 5.667 | 236.110 | Pending log |
 | 1920×1920 @72 | 286.660 | 2048 × 1944 | 6.880 | 286.660 | Pending log |
-| 3840×1920 @72 | 573.290 | 4096 × 1944 | 13.759 | 573.290 | Pending log |
+| 3840×1920 @72 | 573.290 | 4096 × 1944 | 13.759 | 573.290 | 396.000 MHz |
 | 3840×1920 @90 | 849.960 | 4848 × 1948 | 20.399 | 424.980 | Pending log |
 | 2544×2544 @70 | 526.750 | 2928 × 2570 | 12.642 | 526.750 | Pending log |
 
@@ -51,7 +51,7 @@ Confirm `sink_rate_khz=810000`, `sink_lanes=4`, and `phy_lanes=4`.
 Confirm the successful training result uses `rate_khz=810000` and `lanes=4`.
 Type-C assignments C/E provide four DP lanes. Assignment D provides two DP lanes.
 Sink capabilities alone do not determine the negotiated lane assignment.
-No sink DPCD or training log has been supplied yet.
+The user confirms HBR3 ×4 with CR and EQ passing on the first attempt.
 
 ## Cause candidates and vendor comparison
 
@@ -71,8 +71,8 @@ The comparison targets RK3588 SST RGB output.
 | Video M/N | Neither selected driver explicitly programs named Mvid/Nvid registers. | The patch records a reference ratio, not hardware M/N values. |
 
 Parent clock handling is a concrete implementation difference.
-It is a cause candidate, not a hardware diagnosis.
-Confirm a clock mismatch before proposing a PLL change.
+The user confirms the clock mismatch on 3840×1920@72.
+See `vop2-clock.md` for the confirmed parent chain and repair.
 
 A [direct upstream test report](https://lists.openwall.net/linux-kernel/2026/08/08/350) associates VOP underflow with 4K120 corruption.
 That report tests Orange Pi 5 Plus at 1188 MHz pixel clock.

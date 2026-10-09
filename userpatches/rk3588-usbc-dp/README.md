@@ -6,7 +6,9 @@ The 60-patch baseline passes Armbian package generation and package verification
 The user confirms 1080p60 output on Orange Pi 5 with arpara 5K.
 Higher modes show corruption.
 See `high-resolution.md` for diagnostic patch 0801 and log collection.
-Patch 0801 requires a new package build.
+The user supplies diagnostic logs from patch 0801.
+See `vop2-clock.md` for clock repair patches 0901–0903.
+The clock repair requires a new package build.
 See `build-result.md` for baseline package paths, hashes, and log paths.
 
 ## Baseline

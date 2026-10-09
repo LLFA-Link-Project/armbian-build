@@ -55,7 +55,7 @@ def dt_nodes(data):
     raise ValueError("Missing DT end token")
 
 
-def check_dtb(data):
+def check_dtb(data, clock_repair=False):
     nodes = dt_nodes(data)
     require(b"xunlong,orangepi-5\0" in nodes["/"]["compatible"], "Wrong board DTB")
     dp = next(p for p in nodes if p.endswith("/dp@fde50000"))
@@ -87,6 +87,14 @@ def check_dtb(data):
     require("/port@2/endpoint@a" in remote(input_ep), "DP input misses VOP VP2")
     for attr in ("clocks", "resets", "power-domains", "phys"):
         require(attr in nodes[dp], f"Missing DP resource: {attr}")
+    if clock_repair:
+        vop = next(p for p in nodes if p.endswith("/vop@fdd90000"))
+        source = cells(nodes[vop].get("assigned-clocks", b""))
+        parent = cells(nodes[vop].get("assigned-clock-parents", b""))
+        require(len(source) == 2 and source[1] == 608, "Missing VP2 source assignment")
+        require(parent == (source[0], 3), "Missing V0PLL parent assignment")
+        require(handles[source[0]].endswith("/clock-controller@fd7c0000"), "Wrong clock provider")
+        print("PASS: VP2 source uses V0PLL")
     print("PASS: Orange Pi 5 DP0, VP2, PHY0 and Type-C graph")
 
 
@@ -128,7 +136,7 @@ def package(path):
     return fields, files("data")
 
 
-def check_packages(paths, diagnostics=False):
+def check_packages(paths, diagnostics=False, clock_repair=False):
     packages = {meta["Package"]: (meta, data) for meta, data in map(package, paths)}
     names = [f"linux-{part}-current-rockchip64" for part in ("image", "dtb", "headers")]
     require(set(packages) == set(names), "Provide image, DTB and headers packages")
@@ -148,9 +156,13 @@ def check_packages(paths, diagnostics=False):
     require(kernel[56:60] == b"ARM\x64", "Missing arm64 Image magic")
     modules = {name: None for name in ("dw-dp", "phy-rockchip-usbdp", "fusb302",
                                       "typec_displayport", "aux-bridge", "aux-hpd-bridge")}
-    if diagnostics:
+    if diagnostics or clock_repair:
         modules.update({"dw-dp": b"dpdiag caps", "phy-rockchip-usbdp": b"dpdiag PLL",
                         "rockchipdrm": b"dpdiag vop"})
+    if clock_repair:
+        modules["rockchipdrm"] = b"dpdiag vop PLL"
+        for rate in (1146640000, 1146580000, 1053500000, 944440000, 890112000, 849960000):
+            require(struct.pack("<Q", rate) in kernel, f"PLL table rate missing: {rate}")
     for module, marker in modules.items():
         candidates = [v for p, v in image.items()
                       if p.startswith("lib/modules/" + release + "/")
@@ -165,7 +177,7 @@ def check_packages(paths, diagnostics=False):
             require(marker in obj, f"Diagnostic patch missing: {module}")
     builtin = image["lib/modules/" + release + "/modules.builtin"]
     require(b"dwc3-rockchip.ko" in builtin, "Rockchip DWC3 glue missing")
-    check_dtb(dtb["boot/dtb-" + release + "/rockchip/rk3588s-orangepi-5.dtb"])
+    check_dtb(dtb["boot/dtb-" + release + "/rockchip/rk3588s-orangepi-5.dtb"], clock_repair)
     require(any(p.startswith("usr/src/linux-headers-" + release + "/") for p in headers),
             "Headers release mismatch")
     print("PASS: kernel Image, modules, DTB, headers and package versions")
@@ -175,13 +187,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dtb", type=Path)
     parser.add_argument("--diagnostics", action="store_true")
+    parser.add_argument("--clock-repair", action="store_true")
     parser.add_argument("packages", nargs="*", type=Path)
     args = parser.parse_args()
     require(bool(args.dtb or args.packages), "Provide --dtb or three packages")
     if args.dtb:
-        check_dtb(args.dtb.read_bytes())
+        check_dtb(args.dtb.read_bytes(), args.clock_repair)
     if args.packages:
-        check_packages(args.packages, args.diagnostics)
+        check_packages(args.packages, args.diagnostics, args.clock_repair)
 
 
 if __name__ == "__main__":

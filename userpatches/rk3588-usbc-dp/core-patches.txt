@@ -3,3 +3,5 @@ patch/kernel/archive/rockchip64-6.18/rk3328-inno-usb3phy-driver.patch
 patch/kernel/archive/rockchip64-6.18/rk3399-usbc-phy-rockchip-naneng-Add-fallback-for-old-DTs.patch
 patch/kernel/archive/rockchip64-6.18/rk3399-usbc-usb-dwc3-Extend-reset-quirk-support-to-include-role-.patch
 patch/kernel/archive/rockchip64-6.18/rk3399-usbc-usb-dwc3-Track-the-power-state-of-usb3_generic_phy.patch
+patch/kernel/archive/rockchip64-6.18/general-rk3588-i2s-mclk-output-gate-4-gate-grf-clocks.patch
+patch/kernel/archive/rockchip64-6.18/general-rk3588-i2s-mclk-output-gate-5-ignore-unused.patch

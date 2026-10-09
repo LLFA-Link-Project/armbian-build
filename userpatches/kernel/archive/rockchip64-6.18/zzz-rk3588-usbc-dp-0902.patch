@@ -1,0 +1,80 @@
+From: OpenAI Codex <codex@openai.com>
+Subject: [PATCH] drm/rockchip: vop2: Set the dedicated PLL for VP2 DisplayPort
+
+VP2 produces 396 MHz when DisplayPort requests 573.29 MHz.
+Set the dedicated V0PLL before setting DCLK.
+Follow the vendor minimum rate and even-divider policy.
+Reject PLL requests outside the supported rate table.
+Other outputs retain their clock policy.
+
+Adapted from rockchip_rk3588_drm_dclk_set_rate() in the vendor kernel.
+Source: armbian/linux-rockchip dc098b0048bc7a0cf621779ec62e8a03047f5ca2.
+Hardware verification remains pending.
+
+Signed-off-by: OpenAI Codex <codex@openai.com>
+---
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -5,6 +5,7 @@
+  */
+ #include <linux/bitfield.h>
+ #include <linux/clk.h>
++#include <linux/clk-provider.h>
+ #include <linux/component.h>
+ #include <linux/delay.h>
+ #include <linux/iopoll.h>
+@@ -1604,6 +1605,38 @@
+ 	return us * mode->clock / mode->htotal / 1000;
+ }
+ 
++static int rk3588_vop2_dp_set_dclk(struct vop2_video_port *vp, unsigned long rate)
++{
++	struct clk *source = clk_get_parent(vp->dclk);
++	struct clk *pll = clk_get_parent(source);
++	unsigned long pll_rate;
++	unsigned int div;
++	int ret;
++
++	if (!rate)
++		return -EINVAL;
++
++	if (!pll || strcmp(__clk_get_name(pll), "v0pll"))
++		return clk_set_rate(vp->dclk, rate);
++
++	pll_rate = clk_get_rate(pll);
++	if (pll_rate < 594000000 || pll_rate % rate) {
++		div = DIV_ROUND_UP(594000000UL, rate);
++		div = roundup(div, 2);
++		pll_rate = rate * div;
++		if (clk_round_rate(pll, pll_rate) != pll_rate)
++			return -EINVAL;
++
++		ret = clk_set_rate(pll, pll_rate);
++		if (ret)
++			return ret;
++	}
++
++	dev_dbg(vp->vop2->dev, "dpdiag vop PLL: request_hz=%lu actual_hz=%lu\n",
++		pll_rate, clk_get_rate(pll));
++	return clk_set_rate(vp->dclk, rate);
++}
++
+ static void vop2_crtc_atomic_enable(struct drm_crtc *crtc,
+ 				    struct drm_atomic_state *state)
+ {
+@@ -1774,7 +1807,13 @@
+ 		}
+ 	}
+ 
+-	ret = clk_set_rate(vp->dclk, clock);
++	if (vop2_data->soc_id == 3588 && vp->id == 2 &&
++	    vcstate->output_type == DRM_MODE_CONNECTOR_DisplayPort)
++		ret = rk3588_vop2_dp_set_dclk(vp, clock);
++	else
++		ret = clk_set_rate(vp->dclk, clock);
++	if (ret)
++		drm_err(vop2->drm, "Failed to set vp%u DCLK: %d\n", vp->id, ret);
+ 	dev_dbg(vop2->dev,
+ 		"dpdiag vop: vp=%u %dx%d@%d requested_pclk_khz=%d pclk_khz=%d crtc_clock_khz=%d dclk_request_hz=%lu dclk_actual_hz=%lu set_rate_ret=%d aclk_hz=%lu hclk_hz=%lu bus_format=%#x output_mode=%#x output_type=%u dsp_ctrl=%#x\n",
+ 		vp->id, mode->hdisplay, mode->vdisplay, drm_mode_vrefresh(mode),
