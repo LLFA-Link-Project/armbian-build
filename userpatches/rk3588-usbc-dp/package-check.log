@@ -1,0 +1,5 @@
+linux-image-current-rockchip64 26.11.0-trunk ac8d30c55bf6cceb9342007fa03fc7b23401af6bec1c92c58f50e9b58ccb9406
+linux-dtb-current-rockchip64 26.11.0-trunk fd779d24b44c56c9d280ae0f1e6da5a973220693065f17d7c650cd954614c8f6
+linux-headers-current-rockchip64 26.11.0-trunk e0d98a114e16be58cab1470785db93afdbc54df4f25802540928919815482703
+PASS: Orange Pi 5 DP0, VP2, PHY0 and Type-C graph
+PASS: kernel Image, modules, DTB, headers and package versions

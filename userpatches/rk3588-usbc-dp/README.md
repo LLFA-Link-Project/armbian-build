@@ -2,7 +2,9 @@
 
 Enable USB-C DP Alt Mode on Orange Pi 5 with Linux 6.18.55.
 Expose the HMD through DRM/KMS.
-Hardware testing and the full Armbian package build remain pending.
+Armbian package generation and package verification pass.
+Hardware testing remains pending.
+See `build-result.md` for package paths, hashes, and log paths.
 
 ## Baseline
 
@@ -253,8 +255,9 @@ Do not force Alt Mode or alter PDOs to bypass failures.
 
 ## Remaining work
 
-The full Armbian build requires the user's Docker environment.
-No new kernel package exists yet.
+The user completes the full Armbian build in the existing Docker environment.
+New kernel, DTB, and headers packages pass verification.
+See `build-result.md` and `package-check.log`.
 No arpara 5K hardware result exists yet.
 The available upstream testing includes Orange Pi 5 Plus, rather than this board.
 Boot with an attached display and repeated hotplug require particular attention.
