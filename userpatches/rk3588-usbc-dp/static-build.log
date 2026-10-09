@@ -1,0 +1,31 @@
+make: Entering directory '/tmp/linux-6.18.55'
+  CALL    scripts/checksyscalls.sh
+  CALL    scripts/checksyscalls.sh
+  CALL    scripts/checksyscalls.sh
+  CALL    scripts/checksyscalls.sh
+  CALL    scripts/checksyscalls.sh
+  CALL    scripts/checksyscalls.sh
+  CALL    scripts/checksyscalls.sh
+  CALL    scripts/checksyscalls.sh
+  CALL    scripts/checksyscalls.sh
+  CALL    scripts/checksyscalls.sh
+  CALL    scripts/checksyscalls.sh
+  CALL    scripts/checksyscalls.sh
+make: Leaving directory '/tmp/linux-6.18.55'
+
+Baseline: Linux 6.18.55 + 5 intersecting Armbian patches + 60 user patches
+Compiler: clang 23.1.1; ARCH=arm64 LLVM=1
+PASS AArch64 drivers/gpu/drm/bridge/synopsys/dw-dp.o a83ae43c440c1ae0bc8c9680c3de316aec7684ee2ec7ec3b3931f17f042713aa
+PASS AArch64 drivers/gpu/drm/rockchip/dw_dp-rockchip.o 423a716d3ca4d59c236b7a6d750c2ff5ffaab8d74dd51b8e34c3ccdc25e28a75
+PASS AArch64 drivers/gpu/drm/drm_bridge.o d4f34af3cc37ad89b9286ef6ecec345ef5fddaf71d2e5d79ab356aac95ecca79
+PASS AArch64 drivers/gpu/drm/display/drm_bridge_connector.o 350fb799299b370469f91d54b5ab19483da639fc25caff89eb7b28fdc2cf1730
+PASS AArch64 drivers/gpu/drm/bridge/aux-bridge.o 8dc6608bf06730e80ffa7cc973208f8195942d7e29448e51b6a14f8345db088f
+PASS AArch64 drivers/gpu/drm/bridge/aux-hpd-bridge.o fda0782958851dca9dd2cb287ab1a53742b750cf82f4b89eeca426fdd4002743
+PASS AArch64 drivers/phy/rockchip/phy-rockchip-usbdp.o 6965704a15bf45ed8849f7e86d7c34ae82bdf53284aa6ae670acd2d5847c4213
+PASS AArch64 drivers/phy/phy-core.o 1fcf745b437a923b4a9430ee3e5f252ed22f153f292875e7ea46da6abe8298c1
+PASS AArch64 drivers/usb/dwc3/dwc3-rockchip.o 305b301601332830ed5c4266b0c38570bde46647ba2ae90aee42a63b353a5fe9
+PASS AArch64 drivers/usb/dwc3/core.o af9c13b336828575e50cff20b1e32602db67fa26d6874b1f13ad4e88fe013e03
+PASS AArch64 drivers/usb/typec/tcpm/fusb302.o acd3f3e626e65fa81985f99ac744329ff039240c059a00c9b5fa11abed1f303e
+PASS AArch64 drivers/usb/typec/altmodes/displayport.o 90da37395b7bbd11e6d6896a677eee65b6d26465c0a3fe3e6b4609a57b1703e2
+PASS DTB compile and reciprocal graph validation
+Full linking, modpost, package build and hardware testing: pending
