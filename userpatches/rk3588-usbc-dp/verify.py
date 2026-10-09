@@ -128,7 +128,7 @@ def package(path):
     return fields, files("data")
 
 
-def check_packages(paths):
+def check_packages(paths, diagnostics=False):
     packages = {meta["Package"]: (meta, data) for meta, data in map(package, paths)}
     names = [f"linux-{part}-current-rockchip64" for part in ("image", "dtb", "headers")]
     require(set(packages) == set(names), "Provide image, DTB and headers packages")
@@ -146,8 +146,12 @@ def check_packages(paths):
         require(f"CONFIG_{key}={val}\n" in config, f"Wrong config: {key}")
     kernel = unpack(image["boot/vmlinuz-" + release])
     require(kernel[56:60] == b"ARM\x64", "Missing arm64 Image magic")
-    for module in ("dw-dp", "phy-rockchip-usbdp", "fusb302", "typec_displayport",
-                   "aux-bridge", "aux-hpd-bridge"):
+    modules = {name: None for name in ("dw-dp", "phy-rockchip-usbdp", "fusb302",
+                                      "typec_displayport", "aux-bridge", "aux-hpd-bridge")}
+    if diagnostics:
+        modules.update({"dw-dp": b"dpdiag caps", "phy-rockchip-usbdp": b"dpdiag PLL",
+                        "rockchipdrm": b"dpdiag vop"})
+    for module, marker in modules.items():
         candidates = [v for p, v in image.items()
                       if p.startswith("lib/modules/" + release + "/")
                       and p.split("/")[-1].split(".ko")[0] == module and ".ko" in p]
@@ -157,6 +161,8 @@ def check_packages(paths):
                 f"Wrong module architecture: {module}")
         if module == "dw-dp":
             require(b"USB-C mode" in obj, "DP Alt Mode patch missing")
+        if marker:
+            require(marker in obj, f"Diagnostic patch missing: {module}")
     builtin = image["lib/modules/" + release + "/modules.builtin"]
     require(b"dwc3-rockchip.ko" in builtin, "Rockchip DWC3 glue missing")
     check_dtb(dtb["boot/dtb-" + release + "/rockchip/rk3588s-orangepi-5.dtb"])
@@ -168,13 +174,14 @@ def check_packages(paths):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dtb", type=Path)
+    parser.add_argument("--diagnostics", action="store_true")
     parser.add_argument("packages", nargs="*", type=Path)
     args = parser.parse_args()
     require(bool(args.dtb or args.packages), "Provide --dtb or three packages")
     if args.dtb:
         check_dtb(args.dtb.read_bytes())
     if args.packages:
-        check_packages(args.packages)
+        check_packages(args.packages, args.diagnostics)
 
 
 if __name__ == "__main__":

@@ -2,9 +2,12 @@
 
 Enable USB-C DP Alt Mode on Orange Pi 5 with Linux 6.18.55.
 Expose the HMD through DRM/KMS.
-Armbian package generation and package verification pass.
-Hardware testing remains pending.
-See `build-result.md` for package paths, hashes, and log paths.
+The 60-patch baseline passes Armbian package generation and package verification.
+The user confirms 1080p60 output on Orange Pi 5 with arpara 5K.
+Higher modes show corruption.
+See `high-resolution.md` for diagnostic patch 0801 and log collection.
+Patch 0801 requires a new package build.
+See `build-result.md` for baseline package paths, hashes, and log paths.
 
 ## Baseline
 
@@ -23,7 +26,7 @@ The existing package log records a remote cache download, rather than local comp
 See `output/logs/log-kernel-59eec7e6-dc1f-4fbd-a344-a785c0e74737.log`, lines 103–132.
 Existing packages do not validate these changes.
 
-## Phase A: findings
+## Phase A: baseline findings
 
 Linux 6.18.55 contains TCPM, FUSB302, DP Alt Mode, DPTX, and the RK3588 USB-DP PHY.
 The board enables Type-C USB roles and the orientation switch.
@@ -133,7 +136,8 @@ The DTS patch is the only new board feature implementation.
 
 The patch directory affects the shared rockchip64 kernel.
 Only Orange Pi 5 is the intended test board.
-No board has received hardware testing for this patch set.
+The user tests Orange Pi 5 with arpara 5K.
+1080p60 works. Higher modes show corruption.
 
 ## Static validation
 
@@ -258,7 +262,8 @@ Do not force Alt Mode or alter PDOs to bypass failures.
 The user completes the full Armbian build in the existing Docker environment.
 New kernel, DTB, and headers packages pass verification.
 See `build-result.md` and `package-check.log`.
-No arpara 5K hardware result exists yet.
+The user reports working arpara 5K output at 1080p60.
+Higher modes require further diagnosis. See `high-resolution.md`.
 The available upstream testing includes Orange Pi 5 Plus, rather than this board.
 Boot with an attached display and repeated hotplug require particular attention.
 Native HMD modes, bandwidth, clock limits, and DSC compatibility remain unverified.

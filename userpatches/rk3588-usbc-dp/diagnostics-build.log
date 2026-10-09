@@ -1,0 +1,19 @@
+make: Entering directory '/tmp/linux-6.18.55'
+  SYNC    include/config/auto.conf
+  CC      kernel/bounds.s
+  CC      arch/arm64/kernel/asm-offsets.s
+  CC      kernel/sched/rq-offsets.s
+  CALL    scripts/checksyscalls.sh
+  CC      arch/arm64/kernel/vdso/vgettimeofday.o
+  CC      arch/arm64/kernel/vdso/vgetrandom.o
+  LD      arch/arm64/kernel/vdso/vdso.so.dbg
+  VDSOSYM include/generated/vdso-offsets.h
+  OBJCOPY arch/arm64/kernel/vdso/vdso.so
+  CC [M]  drivers/phy/rockchip/phy-rockchip-usbdp.o
+  CC [M]  drivers/gpu/drm/rockchip/rockchip_drm_vop2.o
+  CC [M]  drivers/gpu/drm/bridge/synopsys/dw-dp.o
+make: Leaving directory '/tmp/linux-6.18.55'
+CONFIG_DYNAMIC_DEBUG=y
+PASS AArch64 diagnostic object: drivers/gpu/drm/bridge/synopsys/dw-dp.o 95bc2cdbc6f37654c888f7efebdef9b9d44abf9f24843df966cfa19134946340
+PASS AArch64 diagnostic object: drivers/gpu/drm/rockchip/rockchip_drm_vop2.o 63bb7f410ac973711296ee76eff7d502cdd35f1a7d9f7e52663138d872105bd5
+PASS AArch64 diagnostic object: drivers/phy/rockchip/phy-rockchip-usbdp.o 0a8d96341e1c230f72252548ffcdcd8a494e874ff84697b488dc877f2016601c

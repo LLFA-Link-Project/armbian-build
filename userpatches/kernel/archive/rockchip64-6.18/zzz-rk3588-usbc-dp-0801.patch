@@ -1,0 +1,251 @@
+From: OpenAI Codex <codex@openai.com>
+Subject: [PATCH] drm/phy: Add RK3588 DisplayPort mode diagnostics
+
+Record clocks, link limits, training, transport, and PHY settings.
+Keep link selection and hardware programming unchanged.
+
+Hardware testing is pending.
+
+Signed-off-by: OpenAI Codex <codex@openai.com>
+---
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-dp.c b/drivers/gpu/drm/bridge/synopsys/dw-dp.c
+--- a/drivers/gpu/drm/bridge/synopsys/dw-dp.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-dp.c
+@@ -548,6 +548,14 @@
+ 	link->caps.channel_coding = drm_dp_channel_coding_supported(link->dpcd);
+ 	link->caps.ssc = !!(link->dpcd[DP_MAX_DOWNSPREAD] & DP_MAX_DOWNSPREAD_0_5);
+ 
++	dev_dbg(dp->dev,
++		"dpdiag caps: dpcd=%*ph sink_rate_khz=%d sink_lanes=%d phy_rate_mbps=%u phy_lanes=%d controller_rate_khz=%u selected_rate_khz=%u selected_lanes=%u tps3=%d tps4=%d fast=%d ssc=%d\n",
++		DP_RECEIVER_CAP_SIZE, link->dpcd, drm_dp_max_link_rate(link->dpcd),
++		drm_dp_max_lane_count(link->dpcd), dp->phy->attrs.max_link_rate,
++		phy_get_bus_width(dp->phy), dp->plat_data.max_link_rate,
++		link->rate, link->lanes, link->caps.tps3_supported,
++		link->caps.tps4_supported, link->caps.fast_training, link->caps.ssc);
++
+ 	return 0;
+ }
+ 
+@@ -610,6 +618,8 @@
+ 	phy_cfg.dp.set_rate = true;
+ 	phy_cfg.dp.set_voltages = false;
+ 	ret = phy_configure(dp->phy, &phy_cfg);
++	dev_dbg(dp->dev, "dpdiag configure: rate_khz=%u lanes=%u ssc=%d ret=%d\n",
++		rate, lanes, ssc, ret);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -786,6 +796,7 @@
+ 	struct dw_dp_link *link = &dp->link;
+ 	u8 status[DP_LINK_STATUS_SIZE];
+ 	unsigned int tries = 0;
++	unsigned int attempts = 0;
+ 	int ret;
+ 	bool adj_changed;
+ 
+@@ -806,6 +817,12 @@
+ 			return ret;
+ 		}
+ 
++		attempts++;
++		dev_dbg(dp->dev,
++			"dpdiag CR: attempt=%u repeats=%u rate_khz=%u lanes=%u ok=%d status=%*ph\n",
++			attempts, tries, link->rate, link->lanes,
++			drm_dp_clock_recovery_ok(status, link->lanes),
++			DP_LINK_STATUS_SIZE, status);
+ 		if (drm_dp_clock_recovery_ok(status, link->lanes)) {
+ 			link->train.clock_recovered = true;
+ 			break;
+@@ -821,6 +838,8 @@
+ 		else
+ 			tries = 0;
+ 
++		dev_dbg(dp->dev, "dpdiag CR adjust: changed=%d repeats=%u\n",
++			adj_changed, tries);
+ 		if (tries == 5)
+ 			break;
+ 	}
+@@ -856,6 +875,11 @@
+ 		if (ret < 0)
+ 			return ret;
+ 
++		dev_dbg(dp->dev,
++			"dpdiag EQ: attempt=%u pattern=%u rate_khz=%u lanes=%u cr=%d eq=%d status=%*ph\n",
++			tries, pattern, link->rate, link->lanes,
++			drm_dp_clock_recovery_ok(status, link->lanes),
++			drm_dp_channel_eq_ok(status, link->lanes), DP_LINK_STATUS_SIZE, status);
+ 		if (!drm_dp_clock_recovery_ok(status, link->lanes)) {
+ 			dev_err(dp->dev, "clock recovery lost while equalizing channel\n");
+ 			link->train.clock_recovered = false;
+@@ -895,8 +919,15 @@
+ 	}
+ 
+ 	if (!dw_dp_bandwidth_ok(dp, &state->mode, state->bpp, link->lanes,
+-				link->rate))
++				link->rate)) {
++		dev_dbg(dp->dev,
++			"dpdiag downgrade rejected: rate_khz=%u lanes=%u pclk_khz=%d bpp=%u\n",
++			link->rate, link->lanes, state->mode.clock, state->bpp);
+ 		return -E2BIG;
++	}
++
++	dev_dbg(dp->dev, "dpdiag downgrade: rate_khz=%u lanes=%u\n",
++		link->rate, link->lanes);
+ 
+ 	return 0;
+ }
+@@ -956,6 +987,9 @@
+ 
+ out:
+ 	dw_dp_link_train_set_pattern(dp, DP_TRAINING_PATTERN_DISABLE);
++	dev_dbg(dp->dev, "dpdiag full result: rate_khz=%u lanes=%u cr=%d eq=%d ret=%d\n",
++		link->rate, link->lanes, link->train.clock_recovered,
++		link->train.channel_equalized, ret);
+ 	return ret;
+ }
+ 
+@@ -1001,6 +1035,9 @@
+ 		goto out;
+ 	}
+ 
++	dev_dbg(dp->dev, "dpdiag fast status: rate_khz=%u lanes=%u cr=%d eq=%d status=%*ph\n",
++		link->rate, link->lanes, drm_dp_clock_recovery_ok(status, link->lanes),
++		drm_dp_channel_eq_ok(status, link->lanes), DP_LINK_STATUS_SIZE, status);
+ 	if (!drm_dp_clock_recovery_ok(status, link->lanes)) {
+ 		dev_err(dp->dev, "clock recovery failed\n");
+ 		ret = -EIO;
+@@ -1015,6 +1052,8 @@
+ 
+ out:
+ 	dw_dp_link_train_set_pattern(dp, DP_TRAINING_PATTERN_DISABLE);
++	dev_dbg(dp->dev, "dpdiag fast result: rate_khz=%u lanes=%u ret=%d\n",
++		link->rate, link->lanes, ret);
+ 	return ret;
+ }
+ 
+@@ -1208,6 +1247,8 @@
+ 		     FIELD_PREP(VSTART, vstart) | FIELD_PREP(HSTART, hstart));
+ 	regmap_write(dp->regmap, DW_DP_VIDEO_MSA2, FIELD_PREP(MISC0, misc));
+ 	regmap_write(dp->regmap, DW_DP_VIDEO_MSA3, FIELD_PREP(MISC1, misc >> 8));
++	dev_dbg(dp->dev, "dpdiag MSA: hstart=%u vstart=%u misc=%#x\n",
++		hstart, vstart, misc);
+ 
+ 	return 0;
+ }
+@@ -1242,6 +1283,16 @@
+ 	color_format = state->color_format;
+ 	mode = &state->mode;
+ 
++	dev_dbg(dp->dev,
++		"dpdiag video: %dx%d@%d pclk_khz=%d crtc_clock_khz=%d htotal=%d vtotal=%d flags=%#x bpc=%u bpp=%u color=%u mapping=%u pixel_mode=%u rate_khz=%u lanes=%u demand_kbit=%llu payload_kbit=%llu\n",
++		mode->hdisplay, mode->vdisplay, drm_mode_vrefresh(mode), mode->clock,
++		mode->crtc_clock, mode->htotal, mode->vtotal, mode->flags, bpc, bpp,
++		color_format, state->video_mapping, dp->pixel_mode, link->rate, link->lanes,
++		(u64)mode->clock * bpp, (u64)link->rate * link->lanes * 8);
++	dev_dbg(dp->dev, "dpdiag controller clocks: apb_hz=%lu aux_hz=%lu hdcp_hz=%lu\n",
++		clk_get_rate(dp->apb_clk), clk_get_rate(dp->aux_clk),
++		clk_get_rate(dp->hdcp_clk));
++
+ 	vstart = mode->vtotal - mode->vsync_start;
+ 	hstart = mode->htotal - mode->hsync_start;
+ 
+@@ -1382,6 +1433,10 @@
+ 
+ 	/* Configure DW_DP_VIDEO_HBLANK_INTERVAL register */
+ 	hblank_interval = hblank * (link->rate / 4) / mode->clock;
++	dev_dbg(dp->dev,
++		"dpdiag transport: tu=64 avg_bytes=%u.%u threshold=%u hblank=%u hblank_interval=%u pixel_to_symbol=%d/%u (reference, not M/N readback)\n",
++		average_bytes_per_tu, average_bytes_per_tu_frac, init_threshold,
++		hblank, hblank_interval, mode->clock, link->rate);
+ 	regmap_write(dp->regmap, DW_DP_VIDEO_HBLANK_INTERVAL,
+ 		     FIELD_PREP(HBLANK_INTERVAL_EN, 1) |
+ 		     FIELD_PREP(HBLANK_INTERVAL, hblank_interval));
+@@ -1685,6 +1740,7 @@
+ 				       struct drm_atomic_state *state)
+ {
+ 	struct dw_dp *dp = bridge_to_dp(bridge);
++	struct dw_dp_bridge_state *bridge_state;
+ 	struct drm_connector *connector;
+ 	struct drm_connector_state *conn_state;
+ 	int ret;
+@@ -1710,6 +1766,15 @@
+ 
+ 	set_bit(0, dp->sdp_reg_bank);
+ 
++	bridge_state = dw_dp_get_bridge_state(dp);
++	if (bridge_state)
++		dev_dbg(dp->dev,
++			"dpdiag request: %dx%d@%d pclk_khz=%d htotal=%d vtotal=%d bpc=%u bpp=%u\n",
++			bridge_state->mode.hdisplay, bridge_state->mode.vdisplay,
++			drm_mode_vrefresh(&bridge_state->mode), bridge_state->mode.clock,
++			bridge_state->mode.htotal, bridge_state->mode.vtotal,
++			bridge_state->bpc, bridge_state->bpp);
++
+ 	ret = dw_dp_link_enable(dp);
+ 	if (ret < 0) {
+ 		dev_err(dp->dev, "failed to enable link: %d\n", ret);
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -1774,7 +1774,24 @@
+ 		}
+ 	}
+ 
+-	clk_set_rate(vp->dclk, clock);
++	ret = clk_set_rate(vp->dclk, clock);
++	dev_dbg(vop2->dev,
++		"dpdiag vop: vp=%u %dx%d@%d requested_pclk_khz=%d pclk_khz=%d crtc_clock_khz=%d dclk_request_hz=%lu dclk_actual_hz=%lu set_rate_ret=%d aclk_hz=%lu hclk_hz=%lu bus_format=%#x output_mode=%#x output_type=%u dsp_ctrl=%#x\n",
++		vp->id, mode->hdisplay, mode->vdisplay, drm_mode_vrefresh(mode),
++		crtc_state->mode.clock, mode->clock, mode->crtc_clock, clock,
++		clk_get_rate(vp->dclk), ret,
++		clk_get_rate(vop2->aclk), clk_get_rate(vop2->hclk), vcstate->bus_format,
++		vcstate->output_mode, vcstate->output_type, dsp_ctrl);
++	dev_dbg(vop2->dev, "dpdiag vop parents: source_hz=%lu pll_hz=%lu\n",
++		clk_get_rate(clk_get_parent(vp->dclk)),
++		clk_get_rate(clk_get_parent(clk_get_parent(vp->dclk))));
++	if (vop2_data->soc_id == 3588)
++		dev_dbg(vop2->dev,
++			"dpdiag vop registers: vp_clk_ctrl=%#x if_en=%#x if_ctrl=%#x if_pol=%#x\n",
++			vop2_vp_read(vp, RK3588_VP_CLK_CTRL),
++			vop2_readl(vop2, RK3568_DSP_IF_EN),
++			vop2_readl(vop2, RK3568_DSP_IF_CTRL),
++			vop2_readl(vop2, RK3568_DSP_IF_POL));
+ 
+ 	vop2_post_config(crtc);
+ 
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -1219,6 +1219,11 @@
+ 
+ 	val = dp_ctrl[voltage][pre].trsv_reg0207;
+ 	regmap_write(udphy->pma_regmap, 0x081c + offset, val);
++	dev_dbg(udphy->dev,
++		"dpdiag drive: physical_lane=%u rate_mbps=%u swing=%u pre=%u typec_table=%d regs=%02x/%02x/%02x/%02x\n",
++		lane, udphy->link_rate, voltage, pre, !!udphy->mux,
++		dp_ctrl[voltage][pre].trsv_reg0204, dp_ctrl[voltage][pre].trsv_reg0205,
++		dp_ctrl[voltage][pre].trsv_reg0206, dp_ctrl[voltage][pre].trsv_reg0207);
+ }
+ 
+ static int rk_udphy_dp_phy_configure(struct phy *phy,
+@@ -1241,6 +1246,11 @@
+ 		ret = rk_udphy_dp_phy_verify_lanes(udphy, dp);
+ 		if (ret)
+ 			return ret;
++		dev_dbg(udphy->dev,
++			"dpdiag lanes: selected=%u available=%d map=%u/%u/%u/%u flip=%d hw_mode=%#x\n",
++			udphy->lanes, udphy->dp_lanes, udphy->dp_lane_sel[0],
++			udphy->dp_lane_sel[1], udphy->dp_lane_sel[2], udphy->dp_lane_sel[3],
++			udphy->flip, udphy->hw_mode);
+ 	}
+ 
+ 	if (dp->set_voltages) {
+@@ -1285,6 +1295,8 @@
+ 					       FIELD_GET(CMN_ANA_ROPLL_LOCK_DONE, val) &&
+ 					       FIELD_GET(CMN_ANA_ROPLL_AFC_DONE, val),
+ 					       0, 1000);
++		dev_dbg(udphy->dev, "dpdiag PLL: rate_mbps=%u ssc=%d status=%#x ret=%d\n",
++			dp->link_rate, dp->ssc, ret ? 0 : val, ret);
+ 		if (ret) {
+ 			dev_err(udphy->dev, "ROPLL is not lock, set_rate failed\n");
+ 			return ret;
