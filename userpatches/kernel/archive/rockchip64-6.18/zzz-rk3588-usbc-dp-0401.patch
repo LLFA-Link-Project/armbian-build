@@ -1,0 +1,190 @@
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Thu, 24 Sep 2026 19:25:37 +0200
+Subject: [PATCH v16 1/6] phy: core: add notifier infrastructure
+Message-ID: <20260924-b4-rockchip-dwc3-rockchip-glue-v16-1-126a2e9133c3@collabora.com>
+
+Some PHY devices with multiple ports (e.g. USB3 and DP) require a reset
+if the configuration changes or cable orientation changes. This is a
+problem, as the consumer device will run into undefined behavior.
+
+With the new PHY notifier API introduced in this patch, the consumer
+driver can hook into reset events coming from a PHY device to handle the
+PHY going down gracefully.
+
+Note that this uses -ENOSYS instead of the more sensible -ENOTSUP for
+the stub functions when GENERIC_PHY is disabled to stay consistent with
+the existing ones.
+
+Tested-by: Igor Paunovic <royalnet026@gmail.com> # Orange Pi 5 Plus
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+Backport: Use notifier APIs without the newer PHY state API.
+---
+diff --git a/drivers/phy/phy-core.c b/drivers/phy/phy-core.c
+index 04a5a34..2552d6c 100644
+--- a/drivers/phy/phy-core.c
++++ b/drivers/phy/phy-core.c
+@@ -549,6 +549,70 @@ int phy_configure(struct phy *phy, union phy_configure_opts *opts)
+ }
+ EXPORT_SYMBOL_GPL(phy_configure);
+ 
++/**
++ * phy_register_notifier() - register a notifier for PHY events
++ * @phy: the phy returned by phy_get()
++ * @nb: notifier block to register
++ *
++ * Allows PHY consumers to receive notifications about PHY reset events.
++ * PHY providers can signal these events using phy_notify_reset().
++ *
++ * Returns: %0 if successful, a negative error code otherwise
++ */
++int phy_register_notifier(struct phy *phy, struct notifier_block *nb)
++{
++	if (!phy)
++		return 0;
++
++	return blocking_notifier_chain_register(&phy->notifier, nb);
++}
++EXPORT_SYMBOL_GPL(phy_register_notifier);
++
++/**
++ * phy_unregister_notifier() - unregister a notifier for PHY events
++ * @phy: the phy returned by phy_get()
++ * @nb: notifier block to unregister
++ *
++ * Returns: %0 if successful, a negative error code otherwise
++ */
++int phy_unregister_notifier(struct phy *phy, struct notifier_block *nb)
++{
++	if (!phy)
++		return 0;
++
++	return blocking_notifier_chain_unregister(&phy->notifier, nb);
++}
++EXPORT_SYMBOL_GPL(phy_unregister_notifier);
++
++/**
++ * phy_notify_reset() - notify consumers of a PHY reset event
++ * @phy: the phy that is being reset
++ * @event: the notification event (PRE_RESET or POST_RESET)
++ *
++ * Called by PHY providers to notify consumers that the PHY is about to
++ * be reset or has completed a reset. This allows consumers to quiesce
++ * hardware before the PHY becomes unavailable.
++ *
++ * This may be called from within PHY provider callbacks (e.g. set_mode,
++ * power_on) where phy->mutex is held. Consumer notification handlers must
++ * therefore NOT call back into the PHY framework (e.g. phy_power_off,
++ * phy_exit) on the same PHY, as this would result in a deadlock.
++ *
++ * Returns: %0 if successful or no notifiers registered, a negative error
++ * code if a notifier returns an error (for PRE_RESET only)
++ */
++int phy_notify_reset(struct phy *phy, enum phy_notification event)
++{
++	int ret;
++
++	if (!phy)
++		return 0;
++
++	ret = blocking_notifier_call_chain(&phy->notifier, event, phy);
++	return notifier_to_errno(ret);
++}
++EXPORT_SYMBOL_GPL(phy_notify_reset);
++
+ /**
+  * phy_validate() - Checks the phy parameters
+  * @phy: the phy returned by phy_get()
+@@ -996,6 +1060,7 @@ struct phy *phy_create(struct device *dev, struct device_node *node,
+ 	device_initialize(&phy->dev);
+ 	lockdep_register_key(&phy->lockdep_key);
+ 	mutex_init_with_key(&phy->mutex, &phy->lockdep_key);
++	BLOCKING_INIT_NOTIFIER_HEAD(&phy->notifier);
+ 
+ 	phy->dev.class = &phy_class;
+ 	phy->dev.parent = dev;
+diff --git a/include/linux/phy/phy.h b/include/linux/phy/phy.h
+index 13add0c..23e0265 100644
+--- a/include/linux/phy/phy.h
++++ b/include/linux/phy/phy.h
+@@ -11,6 +11,7 @@
+ #define __DRIVERS_PHY_H
+ 
+ #include <linux/err.h>
++#include <linux/notifier.h>
+ #include <linux/of.h>
+ #include <linux/device.h>
+ #include <linux/pm_runtime.h>
+@@ -53,6 +54,16 @@ enum phy_media {
+ 	PHY_MEDIA_DAC,
+ };
+ 
++/**
++ * enum phy_notification - PHY notification events
++ * @PHY_NOTIFY_PRE_RESET: PHY is about to be reset, consumers should quiesce
++ * @PHY_NOTIFY_POST_RESET: PHY reset is complete, consumers may resume
++ */
++enum phy_notification {
++	PHY_NOTIFY_PRE_RESET,
++	PHY_NOTIFY_POST_RESET,
++};
++
+ /**
+  * union phy_configure_opts - Opaque generic phy configuration
+  *
+@@ -159,6 +170,7 @@ struct phy_attrs {
+  * @power_count: used to protect when the PHY is used by multiple consumers
+  * @attrs: used to specify PHY specific attributes
+  * @pwr: power regulator associated with the phy
++ * @notifier: notifier head for PHY reset events
+  * @debugfs: debugfs directory
+  */
+ struct phy {
+@@ -171,6 +183,7 @@ struct phy {
+ 	int			power_count;
+ 	struct phy_attrs	attrs;
+ 	struct regulator	*pwr;
++	struct blocking_notifier_head notifier;
+ 	struct dentry		*debugfs;
+ };
+ 
+@@ -255,6 +268,9 @@ int phy_reset(struct phy *phy);
+ int phy_calibrate(struct phy *phy);
+ int phy_notify_connect(struct phy *phy, int port);
+ int phy_notify_disconnect(struct phy *phy, int port);
++int phy_register_notifier(struct phy *phy, struct notifier_block *nb);
++int phy_unregister_notifier(struct phy *phy, struct notifier_block *nb);
++int phy_notify_reset(struct phy *phy, enum phy_notification event);
+ static inline int phy_get_bus_width(struct phy *phy)
+ {
+ 	return phy->attrs.bus_width;
+@@ -412,6 +428,30 @@ static inline int phy_notify_disconnect(struct phy *phy, int index)
+ 	return -ENOSYS;
+ }
+ 
++static inline int phy_register_notifier(struct phy *phy,
++					struct notifier_block *nb)
++{
++	if (!phy)
++		return 0;
++	return -ENOSYS;
++}
++
++static inline int phy_unregister_notifier(struct phy *phy,
++					  struct notifier_block *nb)
++{
++	if (!phy)
++		return 0;
++	return -ENOSYS;
++}
++
++static inline int phy_notify_reset(struct phy *phy,
++				   enum phy_notification event)
++{
++	if (!phy)
++		return 0;
++	return -ENOSYS;
++}
++
+ static inline int phy_configure(struct phy *phy,
+ 				union phy_configure_opts *opts)
+ {

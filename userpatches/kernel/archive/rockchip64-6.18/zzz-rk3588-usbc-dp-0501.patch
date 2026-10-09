@@ -1,0 +1,58 @@
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Wed, 30 Sep 2026 12:04:30 +0200
+Subject: [PATCH v16 1/7] phy: rockchip: usbdp: Add phy reset notification support
+Message-ID: <20260930-b4-rockchip-usbdp-cleanup-part3-v16-1-bc144f80afc4@collabora.com>
+
+To resolve issues with running into permanent "cmn ana lcpll lock
+timeout" errors after a few device replugs, add support for reset
+notifications, which will be handled by the DWC3 driver to gracefully
+handle the PHY being disabled. This avoids corrupting the controller's
+internal state and the PIPE interface between the USB3 controller and
+the PHY, thus fixing the issue.
+
+Tested-by: Igor Paunovic <royalnet026@gmail.com> # Orange Pi 5 Plus
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index 59b836a..c85d6a5 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -1005,24 +1005,36 @@ static int rk_udphy_power_on(struct rk_udphy *udphy, u8 mode)
+ 	}
+ 
+ 	if (udphy->status == UDPHY_MODE_NONE) {
++		phy_notify_reset(udphy->phy_u3, PHY_NOTIFY_PRE_RESET);
++
+ 		ret = rk_udphy_setup(udphy);
+-		if (ret)
++		if (ret) {
++			phy_notify_reset(udphy->phy_u3, PHY_NOTIFY_POST_RESET);
+ 			return ret;
++		}
+ 
+ 		if (!udphy->hs && udphy->mode & UDPHY_MODE_USB)
+ 			rk_udphy_u3_port_disable(udphy, false);
+ 		udphy->phy_needs_reinit = false;
++
++		phy_notify_reset(udphy->phy_u3, PHY_NOTIFY_POST_RESET);
+ 	} else if (udphy->phy_needs_reinit) {
++		phy_notify_reset(udphy->phy_u3, PHY_NOTIFY_PRE_RESET);
++
+ 		rk_udphy_u3_port_disable(udphy, true);
+ 		udelay(10);
+ 
+ 		ret = rk_udphy_init(udphy);
+-		if (ret)
++		if (ret) {
++			phy_notify_reset(udphy->phy_u3, PHY_NOTIFY_POST_RESET);
+ 			return ret;
++		}
+ 
+ 		if (!udphy->hs && udphy->mode & UDPHY_MODE_USB)
+ 			rk_udphy_u3_port_disable(udphy, false);
+ 		udphy->phy_needs_reinit = false;
++
++		phy_notify_reset(udphy->phy_u3, PHY_NOTIFY_POST_RESET);
+ 	}
+ 
+ 	udphy->status |= mode;

@@ -1,0 +1,31 @@
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Tue, 15 Sep 2026 15:49:54 +0200
+Subject: [PATCH v15 07/16] phy: rockchip: usbdp: Keep clocks running on PHY re-init
+Message-ID: <20260915-rockchip-usbdp-cleanup-v15-7-80e2c11d1ce8@collabora.com>
+
+When a mode change is required rk_udphy_power_on() disables
+the clocks and then calls rk_udphy_setup(), which then enables
+all the clocks again before continuing with rk_udphy_init().
+
+Considering that rk_udphy_init() does assert the reset lines,
+re-enabling the clocks is just delaying things. Avoid it by
+directly calling rk_udphy_init().
+
+Reviewed-by: Neil Armstrong <neil.armstrong@linaro.org>
+Tested-by: Igor Paunovic <royalnet026@gmail.com> # Orange Pi 5 Plus
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index 6cb9f6b..e3f5a26 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -987,8 +987,7 @@ static int rk_udphy_power_on(struct rk_udphy *udphy, u8 mode)
+ 		if (udphy->mode == UDPHY_MODE_DP)
+ 			rk_udphy_u3_port_disable(udphy, true);
+ 
+-		rk_udphy_disable(udphy);
+-		ret = rk_udphy_setup(udphy);
++		ret = rk_udphy_init(udphy);
+ 		if (ret)
+ 			return ret;
+ 		udphy->mode_change = false;

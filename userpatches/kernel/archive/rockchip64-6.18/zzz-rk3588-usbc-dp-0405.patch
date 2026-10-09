@@ -1,0 +1,31 @@
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Thu, 24 Sep 2026 19:25:41 +0200
+Subject: [PATCH v16 5/6] usb: gadget: define stub for usb_udc_vbus_handler
+Message-ID: <20260924-b4-rockchip-dwc3-rockchip-glue-v16-5-126a2e9133c3@collabora.com>
+
+Platform drivers with optional gadget mode support may want to
+call usb_udc_vbus_handler to properly handle a cable being
+re-plugged.
+
+Ensure these drivers can call the function without a hard dependency on
+CONFIG_USB_GADGET or having the ifdef logic in the driver.
+
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+diff --git a/include/linux/usb/gadget.h b/include/linux/usb/gadget.h
+index 8285b19..551e71b 100644
+--- a/include/linux/usb/gadget.h
++++ b/include/linux/usb/gadget.h
+@@ -979,7 +979,12 @@ extern int usb_gadget_ep_match_desc(struct usb_gadget *gadget,
+ /*-------------------------------------------------------------------------*/
+ 
+ /* utility to update vbus status for udc core, it may be scheduled */
++#if IS_ENABLED(CONFIG_USB_GADGET)
+ extern void usb_udc_vbus_handler(struct usb_gadget *gadget, bool status);
++#else
++static inline void usb_udc_vbus_handler(struct usb_gadget *gadget, bool status)
++{}
++#endif
+ 
+ /*-------------------------------------------------------------------------*/
+ 
