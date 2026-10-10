@@ -8,7 +8,10 @@ Preserve the clock repair and link training policy.
 The user confirms correct DCLK and successful HBR3 ×4 CR/EQ after patches 0901–0903.
 The user corrects the earlier requirement for a second modetest execution.
 Starting from visible TTY, output shows corruption, then blackouts, then usually displays correctly without restarting modetest.
-The elapsed time and visual event timestamps remain unknown.
+The user reports about eight seconds until correct video at both 72 Hz and 90 Hz.
+Exact visual event timestamps remain unknown.
+The similar delay makes common startup behavior a candidate, despite the different pixel clocks.
+The observation does not identify a driver timer or display synchronization as the cause.
 The user runs legacy modetest without `-a` and exits with Ctrl-C.
 TTY returns after an observable interval.
 
