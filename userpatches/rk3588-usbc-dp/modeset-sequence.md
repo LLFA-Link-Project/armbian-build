@@ -1,13 +1,14 @@
 # DisplayPort modeset transition diagnostics
 
-Compare failed first modesets with successful repeated modesets.
+Identify why video stabilizes after an initial corruption and blackout.
 Preserve the clock repair and link training policy.
 
 ## Hardware evidence
 
 The user confirms correct DCLK and successful HBR3 ×4 CR/EQ after patches 0901–0903.
-Both 3840×1920@72 and @90 fail on the first modeset from TTY.
-Repeated modetest execution displays both modes correctly.
+The user corrects the earlier requirement for a second modetest execution.
+Starting from visible TTY, output shows corruption, then blackouts, then usually displays correctly without restarting modetest.
+The elapsed time and visual event timestamps remain unknown.
 The user runs legacy modetest without `-a` and exits with Ctrl-C.
 TTY returns after an observable interval.
 
@@ -20,8 +21,26 @@ sudo modetest -M rockchip -s 84:3840x1920-90
 
 Connector 84 and CRTC 82 identify this supplied run only.
 Do not assume those IDs remain constant.
-The observations establish state dependence, rather than its cause.
+The observations establish delayed recovery within one execution, rather than its cause.
 They do not establish error-free sustained DP transmission.
+
+The supplied patch 1001 logs show these transitions:
+
+| Mode | Video enable time, seconds after boot | Actual DCLK, Hz | Standby completion | CR/EQ |
+| --- | --- | --- | --- | --- |
+| 3840×1920@72 | 87.206879, 101.316916 | 573289993 | Completes | Passes |
+| 3840×1920@90 | 110.792900, 115.239446, 137.712672, 143.430417 | 424979988 | Completes | Passes |
+
+Every listed invocation performs a full 1080p60-to-high-resolution modeset.
+Repeated executions do not skip the modeset in this capture.
+The 90 Hz mode uses twice DCLK for its pixel clock.
+Hardware timing readback matches the new cached timing after standby release.
+VOP2 releases standby about 48 milliseconds before DPTX enables video.
+The capture records no further modeset or training during the subsequent high-resolution hold intervals.
+Visual timestamps must identify whether recovery occurs inside those intervals.
+Link training success does not establish correct video reception throughout those intervals.
+VOP2 startup and display synchronization remain candidates.
+This capture does not identify either candidate as the cause.
 
 ## Source findings
 
@@ -38,13 +57,13 @@ Plane update -> VOP2 flush -> cfg_done -> vblank wait
 
 Other bridges can add callbacks between these stages.
 The helper skips enable/disable callbacks for plane-only commits.
-Thus a second modetest invocation need not repeat the first modeset sequence.
-The new logs distinguish both cases.
+The supplied repeated executions perform full modesets.
 
 Closing the last userspace DRM file calls `drm_client_dev_restore()`.
 The fbdev client can then commit its framebuffer mode.
 Record that restore instead of assuming Ctrl-C immediately restores 1080p60.
-The source does not establish why this hardware's restore takes time.
+The supplied capture restores DPTX video about 167–206 milliseconds after removing the high-resolution framebuffer.
+That interval excludes any later delay before visible TTY.
 
 Vendor SST DPTX enables the VOP DP gate after video enable.
 Vendor gate handling issues cfg_done, waits for configuration, and resets DCLK when loader protection permits.
@@ -96,7 +115,8 @@ Reset HPD is valid only when its poll returns zero.
 The changed arm64 objects compile.
 Checkpatch reports zero errors and zero warnings.
 See `sequence-apply.log`, `sequence-build.log`, and `sequence-style.log`.
-Package generation and hardware regression tests remain pending.
+The supplied hardware logs contain patch 1001 records.
+Local package verification and hardware regression tests remain pending.
 
 Run the existing Docker kernel command:
 
@@ -131,24 +151,25 @@ In another terminal, record the complete timeline:
 sudo dmesg --follow --time-format=raw > ~/dp-sequence-dmesg.log
 ```
 
-Keep the existing modetest command and Ctrl-C exit method for the initial comparison.
+Keep modetest running through corruption, blackout, and correct video.
+Capture each visible stage from a separate terminal.
 Record these snapshots from a separate terminal:
 
 ```sh
-sudo bash ~/capture-transition.sh tty-before-first > ~/dp-tty-before-first.log
-sudo bash ~/capture-transition.sh first-active > ~/dp-first-active.log
+sudo bash ~/capture-transition.sh tty-before > ~/dp-tty-before.log
+sudo bash ~/capture-transition.sh corrupt > ~/dp-corrupt.log
+sudo bash ~/capture-transition.sh blackout > ~/dp-blackout.log
+sudo bash ~/capture-transition.sh stable > ~/dp-stable.log
 sudo bash ~/capture-transition.sh after-ctrl-c > ~/dp-after-ctrl-c.log
-sudo bash ~/capture-transition.sh repeat-active > ~/dp-repeat-active.log
 sudo bash ~/capture-transition.sh tty-restored > ~/dp-tty-restored.log
 ```
 
 Run each snapshot at the named stage, not all snapshots consecutively.
 Keep modetest running during each active snapshot.
 Record visible success or failure beside each snapshot label.
-Compare an immediate repeat with a repeat after confirmed TTY restoration.
+The script records uptime to correlate visible stages with dmesg timestamps.
 Use the observed TTY and DRM state as the condition, rather than a fixed sleep.
 Record both 72 Hz and 90 Hz sequences, including the preceding mode.
-Compare Enter exit with Ctrl-C only after recording the baseline sequence.
 Recheck 1080p60 and HBR3 ×4, then repeat with diagnostics disabled.
 Logging can alter timing and can conceal the failure.
 Do not clear dmesg, force training, or change PLL settings during this comparison.
@@ -161,4 +182,5 @@ echo 'format dpdiag -p' | sudo tee /sys/kernel/debug/dynamic_debug/control
 
 Compare modeset flags first, then standby completion, PLL changes, configuration readback, and DPTX reset/video stages.
 Check underflow, vblank, and commit timeout messages throughout Ctrl-C and restoration.
-A functional fix requires a repeatable difference that explains the failed transition.
+A functional fix requires evidence that explains the initial corruption and delayed recovery.
+The revised observation requires no kernel change or rebuild yet.

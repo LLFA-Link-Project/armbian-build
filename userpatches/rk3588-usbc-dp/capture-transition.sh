@@ -5,6 +5,8 @@ set -u
 shopt -s nullglob
 printf 'Transition label: %s\n' "${1:-unspecified}"
 date -Ins
+printf 'Uptime seconds: '
+cat /proc/uptime
 uname -r
 for entry in /sys/class/drm/card*-*/{status,enabled,modes} /sys/kernel/debug/dri/*/state; do
 	printf '\n%s\n' "$entry"

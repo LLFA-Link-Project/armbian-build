@@ -9,9 +9,10 @@ See `high-resolution.md` for diagnostic patch 0801 and log collection.
 The user supplies diagnostic logs from patch 0801.
 See `vop2-clock.md` for clock repair patches 0901–0903.
 The user confirms correct clocks and HBR3 ×4 after the clock repair.
-First high-resolution modesets fail, while repeated executions display correctly.
+High-resolution output initially shows corruption, then blackouts, then correct video within the same modetest execution.
+The user withdraws the earlier requirement for a second execution.
 See `modeset-sequence.md` for diagnostic patch 1001.
-Patch 1001 requires a new package build.
+The supplied hardware logs contain patch 1001 records.
 See `build-result.md` for baseline package paths, hashes, and log paths.
 
 ## Baseline
